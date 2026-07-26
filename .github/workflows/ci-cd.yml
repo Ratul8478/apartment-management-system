@@ -1,0 +1,62 @@
+name: FinTrack Pro Enterprise CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  audit-and-test:
+    name: Audit, Lint & TypeCheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Configuration Audit
+        run: npm run config:audit
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: TypeScript Static Validation
+        run: npx tsc --noEmit
+
+      - name: Build Application
+        run: npm run build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          DATABASE_URL: "postgresql://fintrack_dev:fintrack_dev_pass@localhost:5432/fintrack_db?schema=public"
+          DIRECT_URL: "postgresql://fintrack_dev:fintrack_dev_pass@localhost:5432/fintrack_db?schema=public"
+          NEXTAUTH_SECRET: "ci-testing-nextauth-secret-key-32chars"
+          NEXTAUTH_URL: "http://localhost:3000"
+
+  docker-build:
+    name: Build Docker Container
+    needs: audit-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: fintrack-pro:latest

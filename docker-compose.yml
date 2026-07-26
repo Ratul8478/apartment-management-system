@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Container
+  postgres:
+    image: postgres:16-alpine
+    container_name: fintrack-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fintrack_user
+      POSTGRES_PASSWORD: fintrack_dev_pass
+      POSTGRES_DB: fintrack_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - fintrack_postgres_data:/var/lib/postgresql/data
+    networks:
+      - fintrack-dev-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fintrack_user -d fintrack_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache Container
+  redis:
+    image: redis:7-alpine
+    container_name: fintrack-redis-dev
+    restart: unless-stopped
+    command: redis-server --requirepass fintrack_redis_dev --appendonly yes
+    ports:
+      - '6379:6379'
+    volumes:
+      - fintrack_redis_data:/data
+    networks:
+      - fintrack-dev-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "fintrack_redis_dev", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  fintrack-dev-network:
+    driver: bridge
+
+volumes:
+  fintrack_postgres_data:
+    driver: local
+  fintrack_redis_data:
+    driver: local

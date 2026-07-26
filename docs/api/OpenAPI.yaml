@@ -1,0 +1,214 @@
+openapi: 3.1.0
+info:
+  title: FinTrack Pro Enterprise API Platform
+  description: Enterprise AI Finance Management Platform REST API specification.
+  version: 1.0.0
+  contact:
+    name: Platform Engineering Team
+    email: api-support@fintrackpro.com
+servers:
+  - url: https://api.fintrackpro.com/v1
+    description: Production Cluster
+  - url: https://staging-api.fintrackpro.com/v1
+    description: Staging Environment
+  - url: http://localhost:3000/api
+    description: Local Development Environment
+
+paths:
+  /auth/login:
+    post:
+      summary: User Authentication & JWT Issuance
+      description: Authenticates user credentials and returns JWT bearer token or MFA token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/mfa/verify:
+    post:
+      summary: Verify MFA TOTP Code
+      description: Verifies TOTP code after initial login challenge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaToken, code]
+              properties:
+                mfaToken:
+                  type: string
+                code:
+                  type: string
+                  example: "123456"
+      responses:
+        '200':
+          description: MFA verification successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+
+  /finance-records:
+    get:
+      summary: List Financial Records
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated financial records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FinanceRecord'
+
+    post:
+      summary: Create Financial Record
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFinanceRecordRequest'
+      responses:
+        '201':
+          description: Record created successfully
+
+  /ai-chat/completions:
+    post:
+      summary: Generate AI Financial Insights
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  example: "Summarize expense trends for Q2"
+      responses:
+        '200':
+          description: AI analysis completed
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+        mfaRequired:
+          type: boolean
+
+    FinanceRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+          enum: [INCOME, EXPENSE, ASSET, LIABILITY]
+        category:
+          type: string
+        description:
+          type: string
+        transactionDate:
+          type: string
+          format: date-time
+
+    CreateFinanceRecordRequest:
+      type: object
+      required: [amount, type, category, transactionDate]
+      properties:
+        amount:
+          type: number
+        type:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        transactionDate:
+          type: string
+          format: date-time
+
+  responses:
+    UnauthorizedError:
+      description: Authentication token missing or invalid
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    example: "UNAUTHORIZED"
+                  message:
+                    type: string
+                    example: "Invalid or expired JWT token"
