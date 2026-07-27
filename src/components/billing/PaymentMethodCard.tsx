@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CreditCard, CheckCircle2 } from 'lucide-react';
+import { CreditCard, CheckCircle2, Wallet } from 'lucide-react';
 
 interface PaymentMethodCardProps {
   method: {
@@ -17,6 +17,8 @@ interface PaymentMethodCardProps {
 }
 
 export const PaymentMethodCard: React.FC<PaymentMethodCardProps> = ({ method }) => {
+  const isRazorpay = method.gateway.toUpperCase() === 'RAZORPAY';
+
   return (
     <div
       className={`p-5 rounded-2xl border transition-all ${
@@ -28,24 +30,28 @@ export const PaymentMethodCard: React.FC<PaymentMethodCardProps> = ({ method }) 
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-slate-800 rounded-xl text-slate-200">
-            <CreditCard className="w-5 h-5" />
+            {isRazorpay ? <Wallet className="w-5 h-5 text-blue-400" /> : <CreditCard className="w-5 h-5 text-purple-400" />}
           </div>
           <div>
-            <div className="text-base font-bold text-slate-100">
-              {method.brand || 'Credit Card'} •••• {method.last4 || '4242'}
+            <div className="text-base font-bold text-slate-100 flex items-center gap-2">
+              <span>{method.brand || (isRazorpay ? 'Razorpay Payment' : 'Credit Card')}</span>
+              {method.last4 && <span>•••• {method.last4}</span>}
             </div>
-            <div className="text-xs text-slate-400">
-              Expires {method.expMonth || 12}/{method.expYear || 2028} • Gateway: {method.gateway}
+            <div className="text-xs text-slate-400 mt-0.5">
+              {isRazorpay
+                ? `Razorpay Gateway (UPI / Cards / NetBanking)`
+                : `Expires ${method.expMonth || 12}/${method.expYear || 2028} • Gateway: ${method.gateway}`}
             </div>
           </div>
         </div>
 
         {method.isDefault && (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Primary
+          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Primary Gateway
           </span>
         )}
       </div>
     </div>
   );
 };
+

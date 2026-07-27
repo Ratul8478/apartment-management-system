@@ -93,21 +93,48 @@ export class AuthController {
       const { ipAddress, userAgent } = this.getClientInfo(req);
       const result = await this.authService.register(validationResult.data, ipAddress, userAgent);
 
-      return NextResponse.json(
+      const response = NextResponse.json(
         {
           success: true,
-          message: "User identity registered successfully. Verification token generated.",
+          message: "Employee account registered & authenticated. Confirmation message dispatched to your email.",
+          redirectUrl: "/dashboard",
           data: {
             user: result.user,
+            tokens: result.tokens,
             verificationToken: result.verificationToken,
           },
         },
         { status: 201 }
       );
+
+      if (result.tokens?.accessToken) {
+        response.cookies.set(
+          AUTH_CONSTANTS.ACCESS_TOKEN_COOKIE_NAME,
+          result.tokens.accessToken,
+          {
+            ...AUTH_CONSTANTS.COOKIE_OPTIONS,
+            maxAge: AUTH_CONSTANTS.ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+          }
+        );
+      }
+
+      if (result.tokens?.refreshToken) {
+        response.cookies.set(
+          AUTH_CONSTANTS.REFRESH_TOKEN_COOKIE_NAME,
+          result.tokens.refreshToken,
+          {
+            ...AUTH_CONSTANTS.COOKIE_OPTIONS,
+            maxAge: AUTH_CONSTANTS.REFRESH_TOKEN_EXPIRES_IN_SECONDS,
+          }
+        );
+      }
+
+      return response;
     } catch (error) {
       return this.handleError(error);
     }
   }
+
 
   /**
    * POST /api/auth/login

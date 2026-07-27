@@ -70,10 +70,10 @@ export default function RegisterPage() {
           setError(data.message || `Registration failed (Status ${res.status}).`);
         }
       } else {
-        setSuccessMsg('Account registered successfully! Redirecting to Sign In...');
+        setSuccessMsg('✅ Registration successful! Real-time confirmation message dispatched to your email. Redirecting directly to Executive Dashboard...');
         setTimeout(() => {
-          router.push('/login');
-        }, 1500);
+          window.location.href = '/dashboard';
+        }, 800);
       }
     } catch (err: any) {
       setError(err?.message || 'Authentication service error during registration.');

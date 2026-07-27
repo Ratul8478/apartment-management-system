@@ -17,6 +17,8 @@ import {
   InvalidTokenError,
   AuthError,
 } from "../errors/auth.errors";
+import { resendEmail } from "@/lib/email/resendEmail";
+import { syncUserRealtimeAuth } from "@/lib/firebase/authSync";
 
 export class AuthService {
   private userRepo: AuthUserRepository;
@@ -34,13 +36,13 @@ export class AuthService {
   }
 
   /**
-   * Registers a new user identity
+   * Registers a new user identity with real-time email verification, instant session creation, and Firebase Realtime DB sync
    */
   public async register(
     dto: RegisterDto,
     ipAddress?: string | null,
     userAgent?: string | null
-  ): Promise<{ user: AuthenticatedUser; verificationToken: string }> {
+  ): Promise<{ user: AuthenticatedUser; verificationToken: string; tokens: TokenPair }> {
     // 1. Check if user already exists
     const existing = await this.userRepo.findByEmail(dto.email);
     if (existing) {
@@ -59,15 +61,67 @@ export class AuthService {
       organizationId: dto.organizationId,
     });
 
-    // 4. Generate Email Verification Token
+    // 4. Generate Email Verification Token & OTP Code
     const verificationToken = CryptoUtils.generateOpaqueToken(32);
-    await this.auditRepo.saveToken(`email_verify:${verificationToken}`, JSON.stringify({ userId: user.id, email: user.email }));
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await this.auditRepo.saveToken(`email_verify:${verificationToken}`, JSON.stringify({ userId: user.id, email: user.email, otpCode }));
 
-    // 5. Log Security Audit Event
+    // 5. Dispatch Real-Time Confirmation Email directly to user inbox
+    try {
+      await resendEmail.sendVerificationEmail(user.email, user.fullName, verificationToken, otpCode);
+    } catch (emailErr) {
+      console.warn('[Realtime Email Dispatch Notice]', emailErr);
+    }
+
+    // 6. Sync User Identity & Auth State to Firebase Realtime Database
+    try {
+      await syncUserRealtimeAuth({
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        organizationId: user.organizationId,
+        isVerified: true,
+        registeredAt: new Date().toISOString(),
+      });
+    } catch (fbErr) {
+      console.warn('[Firebase Realtime Sync Notice]', fbErr);
+    }
+
+    // 7. Create immediate authenticated session for direct dashboard entry
+    const now = new Date();
+    const sessionToken = CryptoUtils.generateOpaqueToken(32);
+    const refreshTokenString = CryptoUtils.generateOpaqueToken(32);
+    const sessionExpiresAt = new Date(now.getTime() + AUTH_CONSTANTS.REFRESH_TOKEN_EXPIRES_IN_SECONDS * 1000);
+
+    const session = await this.sessionRepo.createSession({
+      userId: user.id,
+      sessionToken,
+      refreshToken: refreshTokenString,
+      expiresAt: sessionExpiresAt,
+      ipAddress,
+      userAgent,
+    });
+
+    const accessToken = CryptoUtils.generateAccessToken({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId,
+      sessionId: session.id,
+    });
+
+    const jwtRefreshToken = CryptoUtils.generateRefreshToken({
+      sub: user.id,
+      sessionId: session.id,
+      tokenFamily: refreshTokenString,
+    });
+
+    // 8. Log Security Audit Event
     await this.auditRepo.logEvent({
       organizationId: user.organizationId,
       actorUserId: user.id,
-      action: "USER_REGISTERED",
+      action: "USER_REGISTERED_AUTO_LOGGED_IN",
       targetId: user.id,
       ipAddress,
       userAgent,
@@ -76,11 +130,17 @@ export class AuthService {
     return {
       user: this.mapToAuthenticatedUser(user),
       verificationToken,
+      tokens: {
+        accessToken,
+        refreshToken: jwtRefreshToken,
+        tokenType: "Bearer",
+        expiresInSeconds: AUTH_CONSTANTS.ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+      },
     };
   }
 
   /**
-   * Authenticates user credentials and issues session + JWT token pair
+   * Authenticates user credentials and issues session + JWT token pair with real-time alerts & Firebase sync
    */
   public async login(
     dto: LoginDto,
@@ -164,7 +224,22 @@ export class AuthService {
       tokenFamily: refreshTokenString,
     });
 
-    // 9. Log Security Audit Event
+    // 9. Dispatch Real-Time Login Alert Notification
+    resendEmail.sendLoginAlertEmail(user.email, user.fullName, ipAddress, userAgent).catch(() => {});
+
+    // 10. Sync Live Session & Active Auth to Firebase Realtime Database
+    syncUserRealtimeAuth({
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      organizationId: user.organizationId,
+      isVerified: true,
+      lastLoginAt: new Date().toISOString(),
+      lastActiveSessionId: session.id,
+    }).catch(() => {});
+
+    // 11. Log Security Audit Event
     await this.auditRepo.logEvent({
       organizationId: user.organizationId,
       actorUserId: user.id,

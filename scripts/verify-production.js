@@ -27,7 +27,7 @@ async function runProductionVerification() {
   // 2. TypeScript Static Type Check
   console.log('2. Running TypeScript Type Safety Verification...');
   try {
-    execSync('npx tsc --noEmit', { stdio: 'inherit' });
+    execSync('node --max-old-space-size=4096 node_modules/typescript/lib/tsc.js --noEmit', { stdio: 'inherit' });
     console.log('   ✅ Static type check passed (0 errors).\n');
   } catch {
     console.error('   ❌ TypeScript compilation failed.');

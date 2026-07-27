@@ -152,6 +152,26 @@ export const configurationSchema = z.object({
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: z.string().optional(),
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: z.string().optional(),
   NEXT_PUBLIC_FIREBASE_APP_ID: z.string().optional(),
+
+  // ==========================================
+  // 15. Supabase Backend & Cloud Storage
+  // ==========================================
+  NEXT_PUBLIC_SUPABASE_URL: z.string().optional(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+
+  // ==========================================
+  // 16. Vector Database (Qdrant Cloud / pgvector)
+  // ==========================================
+  QDRANT_URL: z.string().optional(),
+  QDRANT_API_KEY: z.string().optional(),
+
+  // ==========================================
+  // 17. Graph Database (Neo4j AuraDB Free)
+  // ==========================================
+  NEO4J_URI: z.string().optional(),
+  NEO4J_USERNAME: z.string().optional(),
+  NEO4J_PASSWORD: z.string().optional(),
 });
 
 export type AppConfiguration = z.infer<typeof configurationSchema>;
