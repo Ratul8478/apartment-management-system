@@ -4,7 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { fromNodeSocket } from 'pg-gateway/node';
 
 async function startLocalPostgres() {
-  const dataDir = path.join(__dirname, '../.pglite_data');
+  const dataDir = path.join(process.cwd(), '.pglite_data');
   console.log(`Starting embedded PostgreSQL database in: ${dataDir}`);
 
   const db = new PGlite(dataDir);
