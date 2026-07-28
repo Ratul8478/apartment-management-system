@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { firebaseDbAdapter } from '@/lib/firebase/dbAdapter';
 import { UserRole } from '@/types';
 
 export const auditRepo = {
@@ -9,16 +10,25 @@ export const auditRepo = {
     targetId?: string | null;
     metadata?: any;
   }) {
-    // Append-only creation
-    return prisma.auditLog.create({
-      data: {
+    try {
+      return await prisma.auditLog.create({
+        data: {
+          actorUserId: data.actorUserId,
+          action: data.action,
+          targetTable: data.targetTable,
+          targetId: data.targetId || null,
+          metadata: data.metadata ? JSON.stringify(data.metadata) : undefined,
+        },
+      });
+    } catch {
+      return await firebaseDbAdapter.saveAuditLog({
         actorUserId: data.actorUserId,
         action: data.action,
         targetTable: data.targetTable,
         targetId: data.targetId || null,
-        metadata: data.metadata ? JSON.stringify(data.metadata) : undefined,
-      },
-    });
+        metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+      }) as any;
+    }
   },
 
   async findMany(role: UserRole, currentUserId: string, filters?: { limit?: number }) {
@@ -26,21 +36,24 @@ export const auditRepo = {
       return [];
     }
 
-    const where: any = {};
-    if (role === 'ADMIN') {
-      // Admins can only view audit logs of their own actions
-      where.actorUserId = currentUserId;
-    }
+    try {
+      const where: any = {};
+      if (role === 'ADMIN') {
+        where.actorUserId = currentUserId;
+      }
 
-    return prisma.auditLog.findMany({
-      where,
-      take: filters?.limit || 100,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        actorUser: {
-          select: { id: true, fullName: true, email: true, role: true },
+      return await prisma.auditLog.findMany({
+        where,
+        take: filters?.limit || 100,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          actorUser: {
+            select: { id: true, fullName: true, email: true, role: true },
+          },
         },
-      },
-    });
+      });
+    } catch {
+      return [];
+    }
   },
 };

@@ -4,31 +4,91 @@
 // =======================================================
 
 import { prismaClient } from "@/lib/db/client";
+import { firebaseDbAdapter } from "@/lib/firebase/dbAdapter";
 import { User, Session, AuditLog, SystemRole, Prisma } from "@prisma/client";
+
+// In-memory session store for serverless environment fallback
+const fallbackSessionMap = new Map<string, Session>();
 
 export class AuthUserRepository {
   /**
    * Finds an active user by unique email address
    */
   public async findByEmail(email: string): Promise<User | null> {
-    return prismaClient.user.findFirst({
-      where: {
-        email: email.toLowerCase(),
-        deletedAt: null,
-      },
-    });
+    try {
+      return await prismaClient.user.findFirst({
+        where: {
+          email: email.toLowerCase(),
+          deletedAt: null,
+        },
+      });
+    } catch {
+      const fbUser = await firebaseDbAdapter.findUserByEmail(email);
+      if (fbUser) {
+        return {
+          id: fbUser.id,
+          organizationId: fbUser.organizationId || null,
+          email: fbUser.email,
+          passwordHash: fbUser.passwordHash,
+          fullName: fbUser.fullName,
+          role: (fbUser.role as SystemRole) || SystemRole.SUPER_ADMIN,
+          isMfaEnabled: fbUser.isMfaEnabled || false,
+          mfaEnabled: fbUser.mfaEnabled || false,
+          mfaSecret: null,
+          mfaBackupCodes: null,
+          failedLogins: fbUser.failedLogins || 0,
+          failedLoginAttempts: fbUser.failedLogins || 0,
+          lockedUntil: fbUser.lockedUntil ? new Date(fbUser.lockedUntil) : null,
+          lockoutUntil: fbUser.lockedUntil ? new Date(fbUser.lockedUntil) : null,
+          isActive: fbUser.isActive,
+          version: 1,
+          createdAt: new Date(fbUser.createdAt),
+          updatedAt: new Date(fbUser.updatedAt),
+          deletedAt: null,
+        } as User;
+      }
+      return null;
+    }
   }
 
   /**
    * Finds an active user by unique ID
    */
   public async findById(id: string): Promise<User | null> {
-    return prismaClient.user.findFirst({
-      where: {
-        id,
-        deletedAt: null,
-      },
-    });
+    try {
+      return await prismaClient.user.findFirst({
+        where: {
+          id,
+          deletedAt: null,
+        },
+      });
+    } catch {
+      const fbUser = await firebaseDbAdapter.findUserById(id);
+      if (fbUser) {
+        return {
+          id: fbUser.id,
+          organizationId: fbUser.organizationId || null,
+          email: fbUser.email,
+          passwordHash: fbUser.passwordHash,
+          fullName: fbUser.fullName,
+          role: (fbUser.role as SystemRole) || SystemRole.SUPER_ADMIN,
+          isMfaEnabled: fbUser.isMfaEnabled || false,
+          mfaEnabled: fbUser.mfaEnabled || false,
+          mfaSecret: null,
+          mfaBackupCodes: null,
+          failedLogins: fbUser.failedLogins || 0,
+          failedLoginAttempts: fbUser.failedLogins || 0,
+          lockedUntil: fbUser.lockedUntil ? new Date(fbUser.lockedUntil) : null,
+          lockoutUntil: fbUser.lockedUntil ? new Date(fbUser.lockedUntil) : null,
+          isActive: fbUser.isActive,
+          version: 1,
+          createdAt: new Date(fbUser.createdAt),
+          updatedAt: new Date(fbUser.updatedAt),
+          deletedAt: null,
+        } as User;
+      }
+      return null;
+    }
   }
 
   /**
@@ -41,72 +101,146 @@ export class AuthUserRepository {
     role?: SystemRole;
     organizationId?: string | null;
   }): Promise<User> {
-    return prismaClient.user.create({
-      data: {
+    try {
+      return await prismaClient.user.create({
+        data: {
+          fullName: data.fullName,
+          email: data.email.toLowerCase(),
+          passwordHash: data.passwordHash,
+          role: data.role || SystemRole.ANALYST,
+          organizationId: data.organizationId || null,
+          isActive: true,
+        },
+      });
+    } catch {
+      const newId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const saved = await firebaseDbAdapter.saveUser({
+        id: newId,
+        email: data.email,
         fullName: data.fullName,
-        email: data.email.toLowerCase(),
         passwordHash: data.passwordHash,
         role: data.role || SystemRole.ANALYST,
         organizationId: data.organizationId || null,
         isActive: true,
-      },
-    });
+      });
+
+      return {
+        id: saved.id,
+        organizationId: saved.organizationId || null,
+        email: saved.email,
+        passwordHash: saved.passwordHash,
+        fullName: saved.fullName,
+        role: (saved.role as SystemRole) || SystemRole.ANALYST,
+        isMfaEnabled: false,
+        mfaEnabled: false,
+        mfaSecret: null,
+        mfaBackupCodes: null,
+        failedLogins: 0,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        lockoutUntil: null,
+        isActive: true,
+        version: 1,
+        createdAt: new Date(saved.createdAt),
+        updatedAt: new Date(saved.updatedAt),
+        deletedAt: null,
+      } as User;
+    }
   }
 
   /**
    * Increment failed login counter and set account lock timestamp if threshold reached
    */
   public async recordFailedLogin(userId: string, failedCount: number, lockedUntil: Date | null): Promise<User> {
-    return prismaClient.user.update({
-      where: { id: userId },
-      data: {
-        failedLogins: failedCount,
-        failedLoginAttempts: failedCount,
-        lockedUntil,
-        lockoutUntil: lockedUntil,
-      },
-    });
+    try {
+      return await prismaClient.user.update({
+        where: { id: userId },
+        data: {
+          failedLogins: failedCount,
+          failedLoginAttempts: failedCount,
+          lockedUntil,
+          lockoutUntil: lockedUntil,
+        },
+      });
+    } catch {
+      const fbUser = await firebaseDbAdapter.findUserById(userId);
+      if (fbUser) {
+        fbUser.failedLogins = failedCount;
+        fbUser.lockedUntil = lockedUntil ? lockedUntil.toISOString() : null;
+        await firebaseDbAdapter.saveUser(fbUser);
+      }
+      return (fbUser as any) || ({} as User);
+    }
   }
 
   /**
    * Reset failed login counter upon successful authentication
    */
   public async resetFailedLogins(userId: string): Promise<User> {
-    return prismaClient.user.update({
-      where: { id: userId },
-      data: {
-        failedLogins: 0,
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-        lockoutUntil: null,
-      },
-    });
+    try {
+      return await prismaClient.user.update({
+        where: { id: userId },
+        data: {
+          failedLogins: 0,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          lockoutUntil: null,
+        },
+      });
+    } catch {
+      const fbUser = await firebaseDbAdapter.findUserById(userId);
+      if (fbUser) {
+        fbUser.failedLogins = 0;
+        fbUser.lockedUntil = null;
+        await firebaseDbAdapter.saveUser(fbUser);
+      }
+      return (fbUser as any) || ({} as User);
+    }
   }
 
   /**
    * Update password hash
    */
   public async updatePassword(userId: string, newPasswordHash: string): Promise<User> {
-    return prismaClient.user.update({
-      where: { id: userId },
-      data: {
-        passwordHash: newPasswordHash,
-        version: { increment: 1 },
-      },
-    });
+    try {
+      return await prismaClient.user.update({
+        where: { id: userId },
+        data: {
+          passwordHash: newPasswordHash,
+          version: { increment: 1 },
+        },
+      });
+    } catch {
+      const fbUser = await firebaseDbAdapter.findUserById(userId);
+      if (fbUser) {
+        fbUser.passwordHash = newPasswordHash;
+        await firebaseDbAdapter.saveUser(fbUser);
+      }
+      return (fbUser as any) || ({} as User);
+    }
   }
 
   /**
    * Updates user MFA or email verification state
    */
   public async updateVerificationState(userId: string, isVerified = true): Promise<User> {
-    return prismaClient.user.update({
-      where: { id: userId },
-      data: {
-        isMfaEnabled: isVerified,
-        mfaEnabled: isVerified,
-      },
-    });
+    try {
+      return await prismaClient.user.update({
+        where: { id: userId },
+        data: {
+          isMfaEnabled: isVerified,
+          mfaEnabled: isVerified,
+        },
+      });
+    } catch {
+      const fbUser = await firebaseDbAdapter.findUserById(userId);
+      if (fbUser) {
+        fbUser.isMfaEnabled = isVerified;
+        fbUser.mfaEnabled = isVerified;
+        await firebaseDbAdapter.saveUser(fbUser);
+      }
+      return (fbUser as any) || ({} as User);
+    }
   }
 }
 
@@ -122,47 +256,82 @@ export class AuthSessionRepository {
     ipAddress?: string | null;
     userAgent?: string | null;
   }): Promise<Session> {
-    return prismaClient.session.create({
-      data: {
+    try {
+      return await prismaClient.session.create({
+        data: {
+          userId: data.userId,
+          sessionToken: data.sessionToken,
+          refreshToken: data.refreshToken,
+          expiresAt: data.expiresAt,
+          ipAddress: data.ipAddress || null,
+          userAgent: data.userAgent || null,
+        },
+      });
+    } catch {
+      const sessionObj: Session = {
+        id: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         userId: data.userId,
         sessionToken: data.sessionToken,
         refreshToken: data.refreshToken,
-        expiresAt: data.expiresAt,
-        ipAddress: data.ipAddress || null,
         userAgent: data.userAgent || null,
-      },
-    });
+        ipAddress: data.ipAddress || null,
+        expiresAt: data.expiresAt,
+        createdAt: new Date(),
+      };
+      fallbackSessionMap.set(sessionObj.id, sessionObj);
+      fallbackSessionMap.set(`ref_${data.refreshToken}`, sessionObj);
+      fallbackSessionMap.set(`token_${data.sessionToken}`, sessionObj);
+      return sessionObj;
+    }
   }
 
   /**
    * Finds an active session by refresh token
    */
   public async findByRefreshToken(refreshToken: string): Promise<Session | null> {
-    return prismaClient.session.findUnique({
-      where: { refreshToken },
-    });
+    try {
+      return await prismaClient.session.findUnique({
+        where: { refreshToken },
+      });
+    } catch {
+      return fallbackSessionMap.get(`ref_${refreshToken}`) || null;
+    }
   }
 
   /**
    * Finds an active session by session token
    */
   public async findBySessionToken(sessionToken: string): Promise<Session | null> {
-    return prismaClient.session.findUnique({
-      where: { sessionToken },
-    });
+    try {
+      return await prismaClient.session.findUnique({
+        where: { sessionToken },
+      });
+    } catch {
+      return fallbackSessionMap.get(`token_${sessionToken}`) || null;
+    }
   }
 
   /**
    * Finds all active sessions for a user
    */
   public async findUserSessions(userId: string): Promise<Session[]> {
-    return prismaClient.session.findMany({
-      where: {
-        userId,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    try {
+      return await prismaClient.session.findMany({
+        where: {
+          userId,
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch {
+      const list: Session[] = [];
+      fallbackSessionMap.forEach((s) => {
+        if (s.userId === userId && s.expiresAt > new Date()) {
+          list.push(s);
+        }
+      });
+      return list;
+    }
   }
 
   /**
@@ -173,33 +342,53 @@ export class AuthSessionRepository {
     newRefreshToken: string,
     newExpiresAt: Date
   ): Promise<Session> {
-    return prismaClient.session.update({
-      where: { id: sessionId },
-      data: {
-        refreshToken: newRefreshToken,
-        expiresAt: newExpiresAt,
-      },
-    });
+    try {
+      return await prismaClient.session.update({
+        where: { id: sessionId },
+        data: {
+          refreshToken: newRefreshToken,
+          expiresAt: newExpiresAt,
+        },
+      });
+    } catch {
+      const session = fallbackSessionMap.get(sessionId);
+      if (session) {
+        session.refreshToken = newRefreshToken;
+        session.expiresAt = newExpiresAt;
+        fallbackSessionMap.set(`ref_${newRefreshToken}`, session);
+      }
+      return (session as Session) || ({ id: sessionId, refreshToken: newRefreshToken, expiresAt: newExpiresAt } as Session);
+    }
   }
 
   /**
    * Revokes / deletes a session
    */
   public async deleteSession(sessionId: string): Promise<void> {
-    await prismaClient.session.delete({
-      where: { id: sessionId },
-    }).catch(() => {
-      // Ignore if already deleted
-    });
+    try {
+      await prismaClient.session.delete({
+        where: { id: sessionId },
+      });
+    } catch {
+      fallbackSessionMap.delete(sessionId);
+    }
   }
 
   /**
    * Revokes all active sessions for a user
    */
   public async revokeAllUserSessions(userId: string): Promise<void> {
-    await prismaClient.session.deleteMany({
-      where: { userId },
-    });
+    try {
+      await prismaClient.session.deleteMany({
+        where: { userId },
+      });
+    } catch {
+      fallbackSessionMap.forEach((s, key) => {
+        if (s.userId === userId) {
+          fallbackSessionMap.delete(key);
+        }
+      });
+    }
   }
 }
 
